@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Grenoble</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -96,8 +97,8 @@
     50%       { transform: translateX(-50%) translateY(8px); }
   }
 
-  /* GALLERY SECTION */
-  .gallery-section {
+  /* ROUTE SECTION */
+  .route-section {
     padding: 5rem 2rem 6rem;
     max-width: 1300px;
     margin: 0 auto;
@@ -110,6 +111,50 @@
     color: #8a7f72;
     margin-bottom: 3.5rem;
     text-transform: uppercase;
+  }
+
+  #map {
+    width: 100%;
+    height: 500px;
+    border-radius: 4px;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+
+  .route-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    padding: 2.5rem 2rem;
+    background: linear-gradient(135deg, rgba(44,58,46,0.3) 0%, rgba(75,82,64,0.3) 100%);
+    border-radius: 4px;
+    border: 1px solid rgba(138,127,114,0.2);
+  }
+
+  .stat-item {
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 300;
+    color: #f5efe8;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    letter-spacing: 0.25em;
+    color: #8a7f72;
+    text-transform: uppercase;
+  }
+
+  /* GALLERY SECTION */
+  .gallery-section {
+    padding: 5rem 2rem 6rem;
+    max-width: 1300px;
+    margin: 0 auto;
   }
 
   /* Masonry grid */
@@ -243,6 +288,16 @@
     color: #4a4440;
     border-top: 1px solid #1e1c1a;
   }
+
+  /* Leaflet customization */
+  .leaflet-control-attribution {
+    background: rgba(15,14,13,0.8) !important;
+    color: #8a7f72 !important;
+  }
+
+  .leaflet-control-attribution a {
+    color: #c8bfb0 !important;
+  }
 </style>
 </head>
 <body>
@@ -265,6 +320,32 @@
     <svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M8 2v16M2 12l6 6 6-6"/>
     </svg>
+  </div>
+</section>
+
+<!-- ROUTE SECTION -->
+<section class="route-section">
+  <p class="section-label">The Route</p>
+
+  <div id="map"></div>
+
+  <div class="route-stats">
+    <div class="stat-item">
+      <div class="stat-value" id="distance">--</div>
+      <div class="stat-label">Distance (km)</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="elevation">--</div>
+      <div class="stat-label">Elevation Gain (m)</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="maxElevation">--</div>
+      <div class="stat-label">Max Elevation (m)</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value" id="waypoints">--</div>
+      <div class="stat-label">Waypoints</div>
+    </div>
   </div>
 </section>
 
@@ -313,6 +394,8 @@
 <footer>
   <span>Grenoble Erasmus &nbsp;·&nbsp; A Chapter Worth Remembering</span>
 </footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
   // ---- Scroll reveal ----
   const cards = document.querySelectorAll('.photo-card');
@@ -374,6 +457,151 @@
     if (e.key === 'ArrowRight') navLb(1);
     if (e.key === 'ArrowLeft') navLb(-1);
   });
+
+  // ---- GPX Route Loading ----
+  let map;
+  let routeGroup = new L.FeatureGroup();
+
+  function initMap() {
+    map = L.map('map').setView([45.1885, 5.7245], 10);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+      className: 'map-tiles'
+    }).addTo(map);
+
+    map.addLayer(routeGroup);
+    loadGPX('Col_du_Chaussy_et_de_la_Madeleine_.gpx');
+  }
+
+  function parseGPX(gpxText) {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(gpxText, 'text/xml');
+
+    if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
+      console.error('Error parsing GPX file');
+      return null;
+    }
+
+    const trkpts = xmlDoc.getElementsByTagName('trkpt');
+    const waypoints = [];
+    let elevations = [];
+
+    for (let i = 0; i < trkpts.length; i++) {
+      const lat = parseFloat(trkpts[i].getAttribute('lat'));
+      const lon = parseFloat(trkpts[i].getAttribute('lon'));
+      const eleNode = trkpts[i].getElementsByTagName('ele')[0];
+      const ele = eleNode ? parseFloat(eleNode.textContent) : 0;
+
+      waypoints.push([lat, lon]);
+      elevations.push(ele);
+    }
+
+    return { waypoints, elevations };
+  }
+
+  function calculateDistance(waypoints) {
+    let totalDistance = 0;
+
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const lat1 = waypoints[i][0] * Math.PI / 180;
+      const lon1 = waypoints[i][1] * Math.PI / 180;
+      const lat2 = waypoints[i + 1][0] * Math.PI / 180;
+      const lon2 = waypoints[i + 1][1] * Math.PI / 180;
+
+      const dLat = lat2 - lat1;
+      const dLon = lon2 - lon1;
+
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const R = 6371; // Earth's radius in km
+
+      totalDistance += R * c;
+    }
+
+    return totalDistance;
+  }
+
+  function calculateElevationGain(elevations) {
+    let totalGain = 0;
+
+    for (let i = 1; i < elevations.length; i++) {
+      const diff = elevations[i] - elevations[i - 1];
+      if (diff > 0) {
+        totalGain += diff;
+      }
+    }
+
+    return totalGain;
+  }
+
+  function loadGPX(gpxFile) {
+    fetch(gpxFile)
+      .then(response => response.text())
+      .then(gpxText => {
+        const data = parseGPX(gpxText);
+
+        if (!data || data.waypoints.length === 0) {
+          console.error('No waypoints found in GPX');
+          return;
+        }
+
+        const waypoints = data.waypoints;
+        const elevations = data.elevations;
+
+        // Draw route polyline
+        L.polyline(waypoints, {
+          color: '#c8bfb0',
+          weight: 3,
+          opacity: 0.8,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(routeGroup);
+
+        // Start and end markers
+        L.circleMarker(waypoints[0], {
+          radius: 7,
+          fillColor: '#4a5240',
+          color: '#2c3a2e',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9
+        }).bindPopup('Start').addTo(routeGroup);
+
+        L.circleMarker(waypoints[waypoints.length - 1], {
+          radius: 7,
+          fillColor: '#c8bfb0',
+          color: '#8a7f72',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9
+        }).bindPopup('End').addTo(routeGroup);
+
+        // Calculate and display stats
+        const distance = calculateDistance(waypoints);
+        const elevationGain = calculateElevationGain(elevations);
+        const maxElevation = Math.max(...elevations);
+
+        document.getElementById('distance').textContent = distance.toFixed(1);
+        document.getElementById('elevation').textContent = Math.round(elevationGain);
+        document.getElementById('maxElevation').textContent = Math.round(maxElevation);
+        document.getElementById('waypoints').textContent = waypoints.length;
+
+        // Fit map to route bounds
+        const bounds = L.latLngBounds(waypoints);
+        map.fitBounds(bounds, { padding: [50, 50] });
+      })
+      .catch(error => {
+        console.error('Error loading GPX file:', error);
+      });
+  }
+
+  // Initialize map when DOM is ready
+  document.addEventListener('DOMContentLoaded', initMap);
 </script>
 </body>
 </html>
